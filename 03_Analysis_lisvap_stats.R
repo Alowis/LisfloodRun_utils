@@ -1,10 +1,12 @@
-library(rgdal)
-#library(raster)
-library(ncdf4)
-library(lubridate)
-library(ggplot2)
-#library(rasterVis)
-#library(metR)
+#workDir<-("//ies.jrc.it/H07/nahaUsers/tilloal/ERA5l_x_lisflood")
+
+source("Config_gen.R")
+
+yearlist=seq(1981,2019)
+vars=c("et0","es","e0")
+monthlist=c("Jan","Fev","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec")
+
+
 #The aim of that script is to compute yearly statistics for e0, et and es maps from LISVAP
 #First the statistics will be computed at the pixel level for each year
 #The statistics could be computed by catchment using the cutmap utility of LISFLOOD
@@ -12,11 +14,15 @@ library(ggplot2)
 
 #-mean-median-Q2.5-Q97.5-std
 
-workDir<-("//ies.jrc.it/H07/nahaUsers/tilloal/ERA5l_x_lisflood")
-yearlist=seq(1981,2019)
-vars=c("et0","es","e0")
-monthlist=c("Jan","Fev","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec")
+
+
+#Read metadata created from HPC script
+
+
+#select variable
 vx=vars[1]
+
+#read yearly files with monthly metadata
 totalishit=c()
 for (iyr in 1:39){
   yrx=yearlist[iyr]
@@ -29,10 +35,14 @@ for (iyr in 1:39){
 }
 plot(totalishit$month,totalishit$mean,col=totalishit$year)
 
+
+#initialize result matrices
 q025=matrix(nrow=12,ncol=4)
 q975=matrix(nrow=12,ncol=4)
 median=matrix(nrow=12,ncol=4)
 mean=matrix(nrow=12,ncol=4)
+
+# I also compute the slope of change for each month
 replots=list()
 slope=c()
 for (imo in 1:12){
@@ -67,14 +77,14 @@ names(median)=c("q025","q975","median","month")
 mean=as.data.frame(mean)
 names(mean)=c("q025","q975","median","month")
 
-
+#final plot showing monthly vaslues for the 40yrs of record
 ggplot(mean, aes(x = factor(month) , y = median, group = 1)) + 
   ggtitle(paste0( "mean ",vx," for the period",totalishit$year[1], "-",totalishit$year[468], " with E5-land in the EFAS domain")) +
   geom_line(data=totalishit, aes(x=factor(month),y=mean,group=year),col="lightblue",alpha=0.7)+
   geom_line(col='royalblue',lwd=1) + 
   geom_ribbon(aes(ymin = q025, ymax = q975), alpha = 0.2,linetype=2,fill="grey60",color="darkblue")+
   theme_bw()+
-  labs(y = "monthly potential open water evaporation (mm/day) ",x = "Months")+
+  labs(y = "monthly potential evapotranspiration (mm/day) ",x = "Months")+
   scale_x_discrete(breaks=c(1,2,3,4,5,6,7,8,9,10,11,12),labels=c("Jan","Fev","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"))
 
   
@@ -87,7 +97,7 @@ ggplot(mean, aes(x = factor(month) , y = median, group = 1)) +
   geom_line(data=q025, aes(x = factor(month) , y = median, group = 1), col='darkolivegreen',lwd=1) +
   geom_ribbon(data=q025,aes(ymin = q025, ymax = q975), alpha = 0.2,linetype=2,fill="darkolivegreen1",color="darkolivegreen3")
   
-##################Ideally do the same with stefania-s result################
+##################Same process with GLOFAS EVT################
   
   workDir<-("//ies.jrc.it/H07/nahaUsers/tilloal/ERA5l_x_lisflood")
   yearlist=seq(1981,2019)
@@ -163,17 +173,13 @@ ggplot(mean, aes(x = factor(month) , y = median, group = 1)) +
 
 #Here I want to spatially plot the change in evapotranspiration over the 40 yrs
   
-  ncfile= paste0(workDir,"/et0_40y_sum_new.nc")
-  
-  
-
+  #load netcdf
+  ncfile= paste0(dir.input,"/et0_40y_sum_new.nc")
   nc=nc_open(ncfile)
-  
-  
-  
   nv=names(nc[['var']])
   etv=c("ET0","et0","eT0")
   varid=which(!is.na(match(nv,etv)))
+  
   if (length(varid>0))
   {
     print(nv[varid])
@@ -184,23 +190,23 @@ ggplot(mean, aes(x = factor(month) , y = median, group = 1)) +
     print(nv)
   }
   
+  #initialize variables
   t=nc$var[[2]]
   name.var=names(nc$var)[2]
   tsize<-t$varsize
   tdims<-t$ndims
   nt1<-tsize[tdims]
-  
   time <- ncvar_get(nc,"time")
   time
   tunits <- ncatt_get(nc,"time","units")
   timestamp <- as_datetime(c(time*60*60*24),origin="1981-01-02")
-  
-  
   name.lon="lon"
   name.lat="lat"
-  
   lon=ncvar_get(nc,name.lon)
   lat=ncvar_get(nc,name.lat)
+  
+  
+  #####################
   
   start <- rep(1,3) # begin with start=(1,1,1,...,1)
   # change to start=(1,1,1,...,i) to read timestep i
@@ -215,42 +221,29 @@ ggplot(mean, aes(x = factor(month) , y = median, group = 1)) +
   library(Kendall)
   #output = a map showing the kendall tau for each pixel and significance with points
   matmod=ncvar_get(nc,name.var,start = c(1,1,1), count= c(length(lon),length(lat),40))
+  
   mat1=matrix(numeric(length(lon)*length(lat)),nrow = length(lon), ncol = length(lat))
   mat2=mat1
   mktot=list()
   slope=c()
-
+  #filling two matrices with 
+  ##1 kendal coeffincient (trend)
+  ##2 pvalue of the coefficent (significance level)
   for (ilo in 1:length(lon)){
     print(ilo)
     start[1]=ilo
     system.time(
     for (ila in 1:length(lat)){
-      #cat(ila)
       start[2]=ila
       tspix=ncvar_get(nc,name.var,start = start, count= count)  
       if(!is.na(tspix[1])){
-        #tpxx=ts(tspix,start=c(1981),frequency=1)
-        #plot(tpxx)
-        
-        #years= c(1981:2020)
-        #tpx=data.frame(tspix,years)
-        #reg <- lm(tspix ~ years, data = tpx)
-        # summary(reg)
-        # slope=rbind(slope,summary(reg)$coefficients[2,])
-        
         mktest=MannKendall(tspix)
         
         mat1[ilo,ila]=mktest$tau
         mat2[ilo,ila]=mktest$sl
         
-        
-        #create a matrix where I will store the kendall coeff and another one with a variable for significance
-        #mktot=c(mktot,list(mktest))
-        
       }
       if(is.na(tspix[1])){
-        #mktot=c(mktot,NA)
-        #slope=rbind(slope,rep(NA,4))
         mat1[ilo,ila]=NA
         mat2[ilo,ila]=NA
         
@@ -291,51 +284,34 @@ ggplot(mean, aes(x = factor(month) , y = median, group = 1)) +
   mrd=mapply(para_co,id1,id2)
   })
   
-  
   matmod=ncvar_get(nc,name.var,start = c(1,1,1), count= c(length(lon),length(lat),40))
   kend<-function(mat){
     mktest=MannKendall(tspix)
   }
-  
-  library(doParallel)
-  detectCores()
-  
-  ilo=seq(1:10)
-  ila=seq(1:10)
-  ils=list(ilo,ila)
-
-  
-  plot(tspix)
-  tspix=as.vector(tspix)
-  years= c(1981:2020)
-  tpx=data.frame(tspix,years)
 
  # Now I will have to plot the results with ggplot
   
-  mat1=read.csv('mat_kendal_corr.csv')
-  mat2=read.csv('mat_kendal_corr.csv')
-  library(reshape2)
-  library(scales)
-  m1p=melt(mat1)
+  mat1=read.csv(paste0(dir.output,'/mat_kendal_corr.csv'),header=T)[-1]
+  mat2=read.csv(paste0(dir.output,'/mat_sig_level.csv'))[-1]
+  
+  
+#The grid is too thin (1arcmin) for an efficient use of ggplot
   llpairs= expand.grid(lon,lat)
+  m1p=melt(mat1)
   m1p$Var1=llpairs$Var1
-  m1p$Var2=llpairs$Var2 #kikou
+  m1p$Var2=llpairs$Var2
+  m1p=m1p[,-1]
+  
+#transform the grid to a raster grid
+  r1 <- rasterFromXYZ(m1p[,c("Var1","Var2","value")],crs=("+init=epsg:4326 +proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs +towgs84=0,0,0"))
+  
+  rasterVis::levelplot(r1,contour=T,margin=F,maxpixel=100000)
+
+  m1p$Var1=llpairs$Var1
+  m1p$Var2=llpairs$Var2
   m1p$group=1
-  
-  ggplot(m1p) + 
-    geom_contour_fill(aes(x=Var1,y=Var2,group=group,z=value),na.rm = TRUE)+
-    scale_fill_distiller(palette = "RdYlGn",na.value="transparent",guide="colorsteps", breaks=breaks_extended(8), limits=c(-.5,.5),oob = scales::squish)+
-    theme_classic()
-  
-  
-  
-  sigt=function(x){
-    if(!is.na(x)){
-      if (x<=0.05 & x>0.01) x=1
-      if (x<=0.01 & x>0.001) x=2
-      if (x<=0.001) x=3
-    }
-  }
+  #aggregate raster (upscaling with a factor 3)
+  r1a=aggregate(r1, fact=3, fun=mean, expand=TRUE, na.rm=TRUE)
   
   mat2b=mat2
   mat2b[mat2b<=0.05 & mat2b>0.01]=1
@@ -345,10 +321,57 @@ ggplot(mean, aes(x = factor(month) , y = median, group = 1)) +
   
   #now plot the points for CI
   
-  matsi=apply(mat2b,c(1,2),sigt)
+ # matsi=apply(mat2b,c(1,2),sigt)
+
   
   m2p=melt(mat2)
+  m2p$Var1=llpairs$Var1
+  m2p$Var2=llpairs$Var2
+  
+  rconf=rasterFromXYZ(m2p[,c("Var1","Var2","value")],crs=("+init=epsg:4326 +proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs +towgs84=0,0,0"))
+  #aggregate raster
+  rconfa=aggregate(rconf, fact=20, fun=mean, expand=TRUE, na.rm=TRUE)
 
+  #from raster back to ggplot
+  mdown=rasterToPoints(r1a)
+  mdown=as.data.frame(mdown)
+  mdown$group=1
+  
+  magdow=rasterToPoints(rconfa)
+  magdow=as.data.frame(magdow)
+  magdow$group=1
+  
   #test for trend in the data
+  #add variable for statistical significance in the plot
+  magdow$si=NA
+  magdow$si[which(magdow$value<=0.05 & magdow$value>0.01)]=1
+  magdow$si[which(magdow$value<=0.01 & magdow$value>0.001)]=2
+  magdow$si[which(magdow$value<=0.001)]=3
+  
+  
+  #final plot
+  longlims=c(-22.5,47)
+  latlims=c(27.5,70)
+  ggplot(mdown) + 
+    geom_contour_fill(aes(x=x,y=y,group=group,z=value),na.rm = TRUE)+
+    scale_fill_distiller(palette = "RdYlGn",na.value="transparent",guide="colorsteps", breaks=breaks_extended(6), limits=c(-.6,.6),oob = scales::squish,"kendall tau")+
+    geom_point(data=magdow,aes(x=x,y=y,group=group,size=si),na.rm = TRUE,alpha=0.4,shape=16)+
+    scale_size(trans=scales::modulus_trans(1),range=c(0,0.7),  breaks = c(1,2,3),"significance level", labels = c(0.05, 0.01, 0.001))+
+    scale_y_continuous(
+      breaks = c(25,30,35,40,45,50,55,60,65,70),labels= c("25°N","30°N","35°N","40°N","45°N","50°N","55°N","60°N","65°N","70°N"),limits = c(25,71),"Latitude")+
+    scale_x_continuous(
+      breaks =c(-20,-10,0,10,20,30,40,50),labels= c("-20°E","-10°E","0°E","10°E","20°E","30°E","40°E","50°E"),"Longitude") +
+    coord_fixed(xlim = longlims,  ylim = latlims, ratio = 1.3)+
+    theme(axis.text=element_text(size=14),
+          plot.title = element_text(size=18,face="bold"),
+          axis.title=element_text(size=16),
+          panel.background = element_rect(fill = "aliceblue", colour = "grey50"),
+          legend.title = element_text(size=18),
+          panel.grid.major = element_line(color = gray(.5), linetype = "dashed", size = 0.5),
+          panel.border = element_rect(colour = "black", fill=NA, size=1),
+          legend.text = element_text(size=14),
+          legend.key = element_rect(fill = "transparent", colour = "transparent"),
+          legend.key.size = unit(1, "cm"))
+  
 
 
